@@ -1,0 +1,6 @@
+{
+  "higher_is_fraud": true,
+  "threshold": 0.5988795621724841,
+  "source": "/home/user/Desktop/ekyc-id-front/outputs/real_metrics.csv",
+  "target_frr": 0.01
+}

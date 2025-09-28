@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package liveness;
+
+service LivenessService {
+  rpc DetectImage (LivenessRequest) returns (LivenessResponse);
+}
+
+message LivenessRequest {
+  bytes image_data = 1;
+  string reference_id = 2;
+  string jti = 3; 
+  string instruction = 4;
+}
+
+message LivenessResponse {
+  bool match = 1;
+  bool success = 2;
+  string message = 3;
+}

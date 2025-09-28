@@ -1,0 +1,5 @@
+grpcio
+opencv-python
+numpy
+dlib
+protobuf

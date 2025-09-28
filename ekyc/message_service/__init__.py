@@ -1,0 +1,1 @@
+from message_service.message_service import RabbitMQPublisher

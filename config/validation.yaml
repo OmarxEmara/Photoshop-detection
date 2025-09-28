@@ -1,0 +1,17 @@
+photo:
+  hard_fail_on_invalid: true     # immediately fail if "invalid_photo" detected
+  require_present: true          # if no photo is detected -> send to review
+  min_conf: 0.08                 # min conf to accept a photo/invalid_photo detection
+
+weights:
+  photo: 0.60
+  ela_global: 0.15
+  jpeg_global: 0.15
+  illum: 0.10
+
+thresholds:
+  review: 0.45
+  fail: 0.65
+
+quality:
+  max_skew_deg: 3.0

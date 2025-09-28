@@ -1,0 +1,73 @@
+2025-06-23 17:49:07,410 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 17:49:26,404 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 17:50:25,927 - eKyc - INFO - jwt {'reference_id': '131111221112314219111311231151', 'jti': '6b08be55-7a74-4364-8157-e16eba2f45e5', 'exp': 1750691080}
+2025-06-23 17:50:37,591 - eKyc - INFO - jwt {'reference_id': '131111221112314219111311231151', 'jti': '6b08be55-7a74-4364-8157-e16eba2f45e5', 'exp': 1750691080}
+2025-06-23 17:57:21,016 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 17:57:46,060 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 17:58:08,429 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 17:58:10,450 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 18:00:18,875 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 18:00:21,397 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 18:01:45,912 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 18:01:48,221 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 18:02:24,485 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 18:02:28,035 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 18:02:29,567 - eKyc - INFO - https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516
+2025-06-23 18:02:29,984 - eKyc - ERROR - Failed to send callback: 429
+2025-06-23 18:02:29,984 - eKyc - INFO - Send to https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516 and received <ClientResponse(https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516) [429 Too Many Requests]>
+<CIMultiDictProxy('Server': 'nginx', 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked', 'Cache-Control': 'no-cache, private', 'Date': 'Mon, 23 Jun 2025 15:02:29 GMT')>
+
+2025-06-23 18:03:40,158 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 18:03:44,674 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 18:03:46,147 - eKyc - INFO - https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516
+2025-06-23 18:03:46,392 - eKyc - ERROR - Failed to send callback: 429
+2025-06-23 18:03:46,392 - eKyc - INFO - Send to https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516 and received <ClientResponse(https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516) [429 Too many requests]>
+<CIMultiDictProxy('Cache-Control': 'no-cache', 'Content-Type': 'text/html')>
+
+2025-06-23 18:05:05,101 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 18:05:13,861 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 18:05:15,487 - eKyc - INFO - https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516
+2025-06-23 18:05:15,728 - eKyc - ERROR - Failed to send callback: 429
+2025-06-23 18:05:15,728 - eKyc - INFO - Send to https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516 and received <ClientResponse(https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516) [429 Too many requests]>
+<CIMultiDictProxy('Cache-Control': 'no-cache', 'Content-Type': 'text/html')>
+
+2025-06-23 18:06:38,410 - eKyc - INFO - Started consuming from q-request-result
+2025-06-23 18:06:42,868 - eKyc - INFO - jwt {'reference_id': '1311112211123142191111311231151', 'jti': '3c383999-4879-49c9-8fb9-76f0fd8b2f20', 'exp': 1750691438}
+2025-06-23 18:06:44,396 - eKyc - INFO - https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516
+2025-06-23 18:06:44,771 - eKyc - ERROR - Failed to send callback: 429
+2025-06-23 18:06:44,772 - eKyc - INFO - Send to https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516 and received <ClientResponse(https://webhook.site/4f06e3ab-3892-4e8d-acf5-ddd641649516) [429 Too many requests]>
+<CIMultiDictProxy('Cache-Control': 'no-cache', 'Content-Type': 'text/html')>
+
+2025-06-23 18:08:39,555 - eKyc - INFO - jwt {'reference_id': '13111122111123142191111311231151', 'jti': 'c8c3c294-d937-4f2a-a7fc-61c11027a2c9', 'exp': 1750692198}
+2025-06-23 18:08:51,677 - eKyc - INFO - jwt {'reference_id': '13111122111123142191111311231151', 'jti': 'c8c3c294-d937-4f2a-a7fc-61c11027a2c9', 'exp': 1750692198}
+2025-06-23 18:08:53,234 - eKyc - INFO - https://webhook.site/03dc4056-63d6-4bc3-ab0e-36ca9136bb7c
+2025-06-23 18:08:54,241 - eKyc - INFO - Sent data reference_id='None' ocr_data={'first_name': 'هشام', 'second_name': 'احمد احمد زيادى', 'full_name': 'هشام احمد احمد زيادى', 'nid': '27003282101859', 'address_line1': '\u200e١\u200f ش عكاشه', 'address_line2': 'الدقى - الجيزه', 'address': '\u200e١\u200f ش عكاشه الدقى - الجيزه', 'serial': 'GM8118651', 'decoded_nid': {'Birth Date': '1970-03-28', 'Governorate': 'Giza', 'Gender': 'Male'}} success=True match=True error=None timestamp=1750691333 to https://webhook.site/03dc4056-63d6-4bc3-ab0e-36ca9136bb7c with HMAC and received 200
+2025-06-23 18:08:54,241 - eKyc - INFO - Send to https://webhook.site/03dc4056-63d6-4bc3-ab0e-36ca9136bb7c and received <ClientResponse(https://webhook.site/03dc4056-63d6-4bc3-ab0e-36ca9136bb7c) [200 OK]>
+<CIMultiDictProxy('Server': 'nginx', 'Content-Type': 'text/html; charset=UTF-8', 'Transfer-Encoding': 'chunked', 'x-request-id': '9c143b8d-96a8-4efc-9745-d1c244b51098', 'x-token-id': '03dc4056-63d6-4bc3-ab0e-36ca9136bb7c', 'Cache-Control': 'no-cache, private', 'Date': 'Mon, 23 Jun 2025 15:08:54 GMT')>
+
+2025-06-24 13:10:34,628 - eKyc - INFO - Started consuming from q-request-result
+2025-06-24 13:11:38,084 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-06-24 13:11:54,990 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-06-24 13:12:05,300 - eKyc - INFO - https://webhook.site/03dc4056-63d6-4bc3-ab0e-36ca9136bb7c
+2025-06-24 13:12:09,179 - eKyc - INFO - Sent data reference_id='None' ocr_data={'first_name': 'فحمد', 'second_name': 'عقمان فهمى شتيوى', 'full_name': 'فحمد عقمان فهمى شتيوى', 'nid': '30204020102038', 'address_line1': '"اب رابعة الاستثمارى -ش النزهة', 'address_line2': '«حيفه تصراول - القاهره', 'address': '"اب رابعة الاستثمارى -ش النزهة «حيفه تصراول - القاهره', 'serial': 'HW3658359', 'decoded_nid': {'Birth Date': '2002-04-02', 'Governorate': 'Cairo', 'Gender': 'Male'}} success=True match=True error=None timestamp=1750759925 to https://webhook.site/03dc4056-63d6-4bc3-ab0e-36ca9136bb7c with HMAC and received 200
+2025-06-24 13:12:09,180 - eKyc - INFO - Send to https://webhook.site/03dc4056-63d6-4bc3-ab0e-36ca9136bb7c and received <ClientResponse(https://webhook.site/03dc4056-63d6-4bc3-ab0e-36ca9136bb7c) [200 OK]>
+<CIMultiDictProxy('Server': 'nginx', 'Content-Type': 'text/html; charset=UTF-8', 'Transfer-Encoding': 'chunked', 'x-request-id': '6f6e0521-e46a-4347-926b-784708a57a89', 'x-token-id': '03dc4056-63d6-4bc3-ab0e-36ca9136bb7c', 'Cache-Control': 'no-cache, private', 'Date': 'Tue, 24 Jun 2025 10:12:09 GMT')>
+
+2025-06-24 13:14:40,687 - eKyc - INFO - Started consuming from q-request-result
+2025-06-24 13:15:21,768 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-06-24 13:15:39,593 - eKyc - INFO - Started consuming from q-request-result
+2025-06-24 13:15:43,340 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-06-24 13:15:50,368 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-06-24 13:15:51,237 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-06-24 13:15:51,986 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-06-24 13:15:52,656 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-06-24 13:15:53,382 - eKyc - INFO - jwt {'reference_id': '123', 'jti': '8f3c1fe2-34d6-4d20-84a6-fe2af83001d5', 'exp': 1750761659}
+2025-07-01 00:37:33,429 - eKyc - ERROR - Failed to start application: Failed to initialize application context: 'Config' object has no attribute 'DB_ECHO'
+2025-07-01 00:38:55,335 - eKyc - INFO - Graceful shutdown completed succesfully
+2025-07-01 00:38:57,795 - eKyc - ERROR - Failed to start application: Failed to initialize application context: AppContext._initialize_rabbitmq() takes 1 positional argument but 2 were given
+2025-07-01 00:39:29,071 - eKyc - INFO - Graceful shutdown completed succesfully
+2025-07-01 00:39:30,621 - eKyc - ERROR - Failed to connect to RabbitMQ: [Errno -3] Temporary failure in name resolution
+2025-07-01 00:39:30,621 - eKyc - INFO - Disconnected from RabbitMQ
+2025-07-01 00:39:30,621 - eKyc - ERROR - Failed to start application: Failed to initialize application context: [Errno -3] Temporary failure in name resolution
+2025-07-01 00:39:37,037 - eKyc - INFO - Disconnected from RabbitMQ
+2025-07-01 00:39:37,038 - eKyc - INFO - Graceful shutdown completed succesfully

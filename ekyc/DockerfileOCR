@@ -1,0 +1,44 @@
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC \
+    EASYOCR_MODEL_DIR=/root/.EasyOCR/model
+
+WORKDIR /app
+
+COPY message_service/requirements.txt /app/requirements.txt
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-dev \
+    build-essential \
+    libopencv-dev \
+    tesseract-ocr \
+    libtesseract-dev \
+    git \
+    wget \
+    unzip \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN uv pip install --system --no-cache-dir -r requirements.txt
+
+RUN python3 -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0, det_size=(640, 640))"
+
+
+COPY utils /app/utils
+COPY services /app/services
+COPY message_service/ /app/message_service/
+COPY .env /app/.env
+COPY tessdata_Arabic_Numbers /app/tessdata_Arabic_Numbers
+
+
+RUN wget -O /usr/share/tesseract-ocr/5/tessdata/ara.traineddata \
+        https://github.com/tesseract-ocr/tessdata/raw/main/ara.traineddata \
+    && cp /app/tessdata_Arabic_Numbers/ara_number.traineddata /usr/share/tesseract-ocr/5/tessdata/
+
+RUN rm -rf /root/.cache /tmp/* ~/.cache ~/.insightface/models/buffalo_l.zip ~/.EasyOCR/models
+RUN chmod +x /app/message_service/celery_job.bash
+
+ENTRYPOINT ["/app/message_service/celery_job.bash"]

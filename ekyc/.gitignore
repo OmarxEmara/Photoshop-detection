@@ -1,0 +1,13 @@
+uploads/*
+data/*
+.env
+*__pycache__*
+env
+.venv
+*.png
+test.py
+*.db
+test/
+*.onnx
+services/yolo_models/buffalo_l/*.onnx
+*.log

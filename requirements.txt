@@ -1,0 +1,18 @@
+# ---------------- Core ----------------
+numpy==1.24.4
+opencv-python==4.10.0.84
+ultralytics==8.2.103
+paddlepaddle==2.6.1
+paddleocr==3.2.0
+pytesseract==0.3.10
+
+# ---------------- Utils ----------------
+Pillow==10.4.0
+protobuf==5.29.5
+typing-extensions==4.13.0
+pyyaml==6.0.2
+
+# ---------------- Optional but useful ----------------
+matplotlib==3.7.5
+tqdm==4.67.1
+scipy==1.10.1

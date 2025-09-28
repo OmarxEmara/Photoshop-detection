@@ -1,0 +1,84 @@
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.log
+
+# ---- Virtual Environments ----
+.venv/
+.venv*/
+venv/
+venv*/
+env/
+env*/
+
+# Explicitly ignore your local venv
+.venv310/
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+
+# ---- Build / Packaging ----
+build/
+dist/
+.eggs/
+*.manifest
+*.spec
+
+# ---- Jupyter / Notebooks ----
+.ipynb_checkpoints/
+*.ipynb
+
+# ---- Data / Datasets ----
+data/
+datasets/
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.jsonl
+*.pickle
+*.pkl
+
+# ---- Models ----
+models/
+*.pt
+*.onnx
+*.h5
+*.ckpt
+*.weights
+
+# ---- Outputs ----
+outputs/
+runs/
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tiff
+*.pdf
+
+# ---- Cache ----
+.cache/
+__pycache__/
+*.pytest_cache/
+*.mypy_cache/
+
+# ---- Keep essential configs ----
+!calibration_stats.json
+!thresholds.json
+!requirements.txt
+!README.md

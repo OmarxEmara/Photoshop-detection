@@ -1,0 +1,27 @@
+# Deep learning and face recognition
+--extra-index-url https://download.pytorch.org/whl/cpu
+ultralytics
+insightface
+# onnxruntime-gpu
+onnxruntime
+numpy
+opencv-python
+Pillow
+pytesseract
+easyocr
+
+
+# Web framework
+pydantic-settings
+pydantic
+
+
+# Utilities
+python-dotenv
+pytest
+pytest-asyncio
+pika
+minio
+celery
+redis
+flower

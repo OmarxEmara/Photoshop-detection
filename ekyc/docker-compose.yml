@@ -1,0 +1,161 @@
+services:
+  validation_backend:
+    build:
+      context: .
+      dockerfile: DockerfileOCR
+    container_name: validation_service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+    ports:
+      - "5555:5555"
+    restart: unless-stopped
+    networks:
+      - ekyc-network
+    depends_on:
+      - rabbitmq
+      - minio
+      - redis
+      - postgres
+
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=8fcJBtw9iKA8
+      - BATCH_UPLOAD_RETRY_DELAY=60000  
+      - BATCH_RESULT_RETRY_DELAY=60000  
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq-init.sh:/etc/rabbitmq/rabbitmq-init.sh
+    restart: unless-stopped
+    networks:
+      - ekyc-network
+
+    entrypoint: >
+      bash -c "
+        # Start RabbitMQ as usual
+        docker-entrypoint.sh rabbitmq-server &
+        
+        # Wait for RabbitMQ to start and then run our init script
+        sleep 20 && bash /etc/rabbitmq/rabbitmq-init.sh &
+        
+        # Keep container running
+        wait
+      "
+  
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9111:9000"       # S3 API
+      - "9112:9001"       # MinIO Console
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=9fFVZ9ggu80t
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+      - ./minio-init.sh:/usr/local/bin/minio-init.sh
+    networks:
+      - ekyc-network
+    entrypoint: >
+      sh -c "
+        /usr/bin/docker-entrypoint.sh minio server /data --console-address ':9001' &
+        sleep 10 && sh /usr/local/bin/minio-init.sh &&
+        wait
+      "
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - ekyc-network
+
+  
+  redisinsight:
+    image: redislabs/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "5540:5540"  # Web UI will be accessible at http://localhost:8001
+    restart: unless-stopped
+    networks:
+      - ekyc-network
+
+
+  # frontend:
+  #   # Define your frontend service
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: backend_service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=9fFVZ9ggu80t
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=tazkarti_user
+      - POSTGRES_PASSWORD=7fF604vGXyyP
+      - POSTGRES_DB=tazkarti_ekyc
+    ports:
+      - "5000:5000"
+      - "4121:4121"
+    restart: unless-stopped
+    networks:
+      - ekyc-network
+    depends_on:
+      - rabbitmq
+      - minio
+      - redis
+      - postgres
+      - liveness
+      - validation_backend
+
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=tazkarti_user
+      - POSTGRES_PASSWORD=7fF604vGXyyP
+      - POSTGRES_DB=tazkarti_ekyc
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - ekyc-network
+  
+  liveness:
+    build: 
+      context: ./live 
+      dockerfile: dockerfile
+    container_name: liveness
+    ports:
+      - "50052:50052"
+    networks:
+      - ekyc-network
+
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  rabbitmq_data:
+
+
+networks:
+  ekyc-network:
