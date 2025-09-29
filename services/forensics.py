@@ -1,5 +1,13 @@
+"""
+Image Forensics Module for ID Card Tampering Detection
 
-# services/forensics.py
+Provides multiple forensic analysis techniques:
+1. Splice detection (Noiseprint/ManTra-Net with fallback)
+2. Texture analysis (LBP variance comparison)
+3. Copy-move detection (ORB feature matching)
+4. CFA inconsistency detection
+5. Font forensics (One-Class SVM on glyph metrics)
+"""
 from __future__ import annotations
 import os
 from typing import Optional, Tuple, Dict
@@ -7,363 +15,653 @@ from typing import Optional, Tuple, Dict
 import cv2
 import numpy as np
 
-# Optional heavy deps (graceful fallback if missing)
+# Optional dependencies with graceful degradation
 try:
     import torch  # noqa: F401
-    TORCH_OK = True
+    TORCH_AVAILABLE = True
 except Exception:
-    TORCH_OK = False
+    TORCH_AVAILABLE = False
 
 try:
     from sklearn.svm import OneClassSVM  # type: ignore
     import joblib  # type: ignore
-    SKLEARN_OK = True
+    SKLEARN_AVAILABLE = True
 except Exception:
-    SKLEARN_OK = False
+    SKLEARN_AVAILABLE = False
+
+# Constants
+DEFAULT_SEAM_MARGIN_PIXELS = 8
+MIN_COPY_MOVE_MATCHES = 30
+COPY_MOVE_EPSILON_PIXELS = 3
+ORB_MAX_FEATURES = 4000
+ORB_SCALE_FACTOR = 1.2
+ORB_PYRAMID_LEVELS = 8
+ANGLE_HISTOGRAM_BINS = 36
+MAGNITUDE_HISTOGRAM_BINS = 30
+MAGNITUDE_MAX_DEFAULT = 50
+BINARIZATION_UPSCALE_FACTOR = 2.0
+MORPHOLOGY_KERNEL_SIZE = (2, 2)
+SKELETON_KERNEL_SIZE = (3, 3)
+MIN_IMAGE_SIZE_FOR_LBP = 3
+LBP_HISTOGRAM_SIZE = 256
+EPSILON_SMALL = 1e-9
 
 
-# ---------------------- helpers ----------------------
+# ============================================================================
+# Image Utilities
+# ============================================================================
 
-def safe_crop(img: np.ndarray, xyxy, pad: int = 0) -> Optional[np.ndarray]:
-    if img is None or xyxy is None:
+def safe_crop_region(
+    image: np.ndarray, 
+    bbox_xyxy: Tuple[int, int, int, int], 
+    padding: int = 0
+) -> Optional[np.ndarray]:
+    """
+    Safely crop region from image with optional padding.
+    Returns None if crop is invalid or empty.
+    """
+    if image is None or bbox_xyxy is None:
         return None
-    h, w = img.shape[:2]
-    x1, y1, x2, y2 = map(int, xyxy)
-    x1 = max(0, x1 - pad); y1 = max(0, y1 - pad)
-    x2 = min(w - 1, x2 + pad); y2 = min(h - 1, y2 + pad)
+    
+    height, width = image.shape[:2]
+    x1, y1, x2, y2 = map(int, bbox_xyxy)
+    
+    # Apply padding with boundary clipping
+    x1 = max(0, x1 - padding)
+    y1 = max(0, y1 - padding)
+    x2 = min(width - 1, x2 + padding)
+    y2 = min(height - 1, y2 + padding)
+    
     if x2 <= x1 or y2 <= y1:
         return None
-    return img[y1:y2, x1:x2]
+    
+    return image[y1:y2, x1:x2]
 
-def to_gray(bgr: np.ndarray) -> np.ndarray:
-    return cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
 
-def seam_margin_mask(shape_hw: Tuple[int, int] | np.ndarray, box, margin=8) -> np.ndarray:
-    """Binary mask for a ring around the portrait box (the seam)."""
-    if isinstance(shape_hw, np.ndarray):
-        h, w = shape_hw[:2]
+def convert_to_grayscale(bgr_image: np.ndarray) -> np.ndarray:
+    """Convert BGR image to grayscale, passthrough if already gray."""
+    if bgr_image.ndim == 3:
+        return cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
+    return bgr_image
+
+
+def create_seam_margin_mask(
+    image_shape: Tuple[int, int] | np.ndarray,
+    inner_box: Tuple[int, int, int, int],
+    margin_pixels: int = DEFAULT_SEAM_MARGIN_PIXELS
+) -> np.ndarray:
+    """
+    Create binary mask for ring around a bounding box (the seam region).
+    The mask is 1 in the margin ring, 0 everywhere else.
+    """
+    if isinstance(image_shape, np.ndarray):
+        height, width = image_shape[:2]
     else:
-        h, w = shape_hw
-    x1, y1, x2, y2 = map(int, box)
-    m = np.zeros((h, w), np.uint8)
-    x1o = max(0, x1 - margin); y1o = max(0, y1 - margin)
-    x2o = min(w - 1, x2 + margin); y2o = min(h - 1, y2 + margin)
-    m[y1o:y2o, x1o:x2o] = 1
-    # inner hole
-    m[y1:y2, x1:x2] = 0
-    return m
+        height, width = image_shape
+    
+    x1, y1, x2, y2 = map(int, inner_box)
+    mask = np.zeros((height, width), dtype=np.uint8)
+    
+    # Outer rectangle (with margin)
+    x1_outer = max(0, x1 - margin_pixels)
+    y1_outer = max(0, y1 - margin_pixels)
+    x2_outer = min(width - 1, x2 + margin_pixels)
+    y2_outer = min(height - 1, y2 + margin_pixels)
+    
+    mask[y1_outer:y2_outer, x1_outer:x2_outer] = 1
+    
+    # Cut out inner rectangle (creating ring)
+    mask[y1:y2, x1:x2] = 0
+    
+    return mask
 
 
-# ----------------------------------------------------
-# 1) Noiseprint / ManTra-Net (splice detectors)
-#    - If Torch models are absent, we use a residual heuristic.
-# ----------------------------------------------------
+# ============================================================================
+# 1. Splice Detection (Noiseprint/ManTra-Net)
+# ============================================================================
 
-def _highfreq_residual_score(img_gray: np.ndarray) -> float:
-    """Cheap fallback: high-frequency residual magnitude."""
-    k = np.array([[0, -1, 0],
-                  [-1, 4, -1],
-                  [0, -1, 0]], dtype=np.float32)
-    res = cv2.filter2D(img_gray.astype(np.float32), -1, k)
-    return float(np.mean(np.abs(res)))
-
-def noiseprint_or_mantra_score(roi_bgr: np.ndarray, seam_gray: Optional[np.ndarray] = None) -> Dict[str, float]:
+def compute_highfreq_residual_score(grayscale_image: np.ndarray) -> float:
     """
-    Returns {'mantra': s1, 'noiseprint': s2, 'residual': s3}
-    Higher => more suspicious. Uses whatever is available.
+    Compute high-frequency residual magnitude using Laplacian kernel.
+    This serves as a cheap fallback when deep learning models are unavailable.
     """
-    out = {"mantra": 0.0, "noiseprint": 0.0, "residual": 0.0}
+    laplacian_kernel = np.array([
+        [0, -1, 0],
+        [-1, 4, -1],
+        [0, -1, 0]
+    ], dtype=np.float32)
+    
+    residual = cv2.filter2D(
+        grayscale_image.astype(np.float32), 
+        -1, 
+        laplacian_kernel
+    )
+    
+    return float(np.mean(np.abs(residual)))
+
+
+def compute_splice_detection_scores(
+    roi_bgr: np.ndarray,
+    seam_grayscale: Optional[np.ndarray] = None
+) -> Dict[str, float]:
+    """
+    Compute splice detection scores using available methods.
+    Returns dictionary with 'mantra', 'noiseprint', and 'residual' scores.
+    Higher scores indicate more suspicious regions.
+    
+    Args:
+        roi_bgr: Region of interest in BGR format
+        seam_grayscale: Optional seam region in grayscale for enhanced detection
+    
+    Returns:
+        Dictionary of splice detection scores
+    """
+    scores = {
+        "mantra": 0.0,
+        "noiseprint": 0.0,
+        "residual": 0.0
+    }
+    
     if roi_bgr is None or roi_bgr.size == 0:
-        return out
+        return scores
+    
+    grayscale = convert_to_grayscale(roi_bgr)
+    
+    # Baseline residual score (always available)
+    scores["residual"] = compute_highfreq_residual_score(grayscale)
+    
+    # Boost score using seam region if provided
+    if seam_grayscale is not None and seam_grayscale.size > 0:
+        seam_residual_score = compute_highfreq_residual_score(seam_grayscale)
+        scores["residual"] = max(scores["residual"], seam_residual_score)
+    
+    # Deep learning models (placeholder for future implementation)
+    if TORCH_AVAILABLE:
+        # TODO: Integrate pretrained ManTra-Net and Noiseprint models
+        # Map logits to [0, 1] range for consistency
+        scores["mantra"] = 0.0
+        scores["noiseprint"] = 0.0
+    
+    return scores
 
-    g = to_gray(roi_bgr)
 
-    # Cheap residual baseline (always available)
-    out["residual"] = _highfreq_residual_score(g)
+# ============================================================================
+# 2. Texture Analysis (LBP)
+# ============================================================================
 
-    # Seam boost (if provided): take residual on seam, use max of seam vs ROI
-    if seam_gray is not None and seam_gray.size > 0:
-        seam_res = _highfreq_residual_score(seam_gray)
-        out["residual"] = max(out["residual"], seam_res)
-
-    # TODO: plug real pretrained Torch models here; map logits to [0..1]
-    if TORCH_OK:
-        # Placeholders until models are wired
-        out["mantra"] = 0.0
-        out["noiseprint"] = 0.0
-
-    return out
-
-
-# ----------------------------------------------------
-# 2) Local CLBP/LBP variance (portrait vs card)
-# ----------------------------------------------------
-
-def lbp_texture_zscores(card_bgr: np.ndarray, photo_xyxy) -> Dict[str, float]:
+def compute_lbp_image(grayscale_image: np.ndarray) -> np.ndarray:
     """
-    Compute texture complexity (LBP histogram variance & entropy) for
-    portrait vs whole card. Returns z-scores: higher => more suspicious.
-    Robust to tiny crops and dtype issues.
+    Compute classic 8-neighbor Local Binary Pattern (LBP).
+    Returns LBP-encoded image with dimensions (H-2, W-2).
     """
-    out = {"lbp_var_z": 0.0, "lbp_entropy_z": 0.0}
-    if card_bgr is None or photo_xyxy is None:
-        return out
-
-    gray = to_gray(card_bgr)
-    roi = safe_crop(gray, photo_xyxy)
-    if roi is None or roi.size == 0:
-        return out
-
-    # Must have at least 3x3 to compute 8-neighborhood LBP
-    if min(gray.shape[:2]) < 3 or min(roi.shape[:2]) < 3:
-        return out
-
-    def lbp_u8(img: np.ndarray) -> np.ndarray:
-        """Classic 8-neighbor LBP, returns uint8 image (H-2, W-2)."""
-        img = img.astype(np.uint8, copy=False)
-        c = img[1:-1, 1:-1].astype(np.uint8)
-
-        def b(mask: np.ndarray) -> np.uint8:
-            return mask.astype(np.uint8)
-
-        code = (
-            (b(img[0:-2, 1:-1] > c) << 7) |
-            (b(img[0:-2, 2:]   > c) << 6) |
-            (b(img[1:-1, 2:]   > c) << 5) |
-            (b(img[2:,   2:]   > c) << 4) |
-            (b(img[2:,   1:-1] > c) << 3) |
-            (b(img[2:,   0:-2] > c) << 2) |
-            (b(img[1:-1, 0:-2] > c) << 1) |
-            (b(img[0:-2, 0:-2] > c) << 0)
-        ).astype(np.uint8)
-        return code
-
-    card_lbp = lbp_u8(gray)
-    roi_lbp  = lbp_u8(roi)
-
-    def stats_u8(x: np.ndarray) -> tuple[float, float]:
-        """Histogram-based variance & entropy from uint8 LBP image."""
-        if x.size == 0:
-            return 0.0, 0.0
-        # Use numpy (works regardless of OpenCV build)
-        hist = np.bincount(x.ravel(), minlength=256).astype(np.float64)
-        total = hist.sum()
-        if total <= 0:
-            return 0.0, 0.0
-        p = hist / total
-        var = float(np.var(p))
-        nz = p > 0
-        ent = float(-(p[nz] * np.log2(p[nz])).sum())
-        return var, ent
-
-    var_card, ent_card = stats_u8(card_lbp)
-    var_roi,  ent_roi  = stats_u8(roi_lbp)
-
-    # Guard against degenerate denominators
-    denom_var = np.sqrt(max(var_card, 1e-9))
-    denom_ent = np.sqrt(max(abs(ent_card), 1e-9))
-
-    lbp_var_z = float((var_roi - var_card) / denom_var)
-    lbp_entropy_z = float((ent_roi - ent_card) / denom_ent)
-
-    out["lbp_var_z"] = lbp_var_z
-    out["lbp_entropy_z"] = lbp_entropy_z
-    return out
+    image_uint8 = grayscale_image.astype(np.uint8, copy=False)
+    center = image_uint8[1:-1, 1:-1].astype(np.uint8)
+    
+    def to_binary(comparison_mask: np.ndarray) -> np.ndarray:
+        return comparison_mask.astype(np.uint8)
+    
+    # Build 8-bit LBP code by comparing neighbors to center
+    lbp_code = (
+        (to_binary(image_uint8[0:-2, 1:-1] > center) << 7) |  # Top
+        (to_binary(image_uint8[0:-2, 2:] > center) << 6) |    # Top-right
+        (to_binary(image_uint8[1:-1, 2:] > center) << 5) |    # Right
+        (to_binary(image_uint8[2:, 2:] > center) << 4) |      # Bottom-right
+        (to_binary(image_uint8[2:, 1:-1] > center) << 3) |    # Bottom
+        (to_binary(image_uint8[2:, 0:-2] > center) << 2) |    # Bottom-left
+        (to_binary(image_uint8[1:-1, 0:-2] > center) << 1) |  # Left
+        (to_binary(image_uint8[0:-2, 0:-2] > center) << 0)    # Top-left
+    ).astype(np.uint8)
+    
+    return lbp_code
 
 
-
-# ----------------------------------------------------
-# 3) Copy-move detection (self-matching via ORB)
-# ----------------------------------------------------
-
-def copy_move_score(card_gray: np.ndarray, min_matches=30, eps_px=3) -> float:
+def compute_lbp_statistics(lbp_image: np.ndarray) -> Tuple[float, float]:
     """
-    Returns a scalar score; > ~0.6 suggests duplicated content.
-    - ORB features, match to themselves (cross-check),
-    - filter near neighbors (within eps_px),
-    - cluster displacement vectors by angle x magnitude; dominant ratio => score.
+    Compute histogram-based variance and entropy from LBP-encoded image.
+    
+    Returns:
+        Tuple of (variance, entropy)
     """
-    if card_gray is None or card_gray.size == 0:
+    if lbp_image.size == 0:
+        return 0.0, 0.0
+    
+    # Compute histogram of LBP codes
+    histogram = np.bincount(
+        lbp_image.ravel(), 
+        minlength=LBP_HISTOGRAM_SIZE
+    ).astype(np.float64)
+    
+    total_pixels = histogram.sum()
+    if total_pixels <= 0:
+        return 0.0, 0.0
+    
+    # Normalize to probability distribution
+    probabilities = histogram / total_pixels
+    
+    # Variance of probability distribution
+    variance = float(np.var(probabilities))
+    
+    # Entropy calculation (skip zero probabilities)
+    nonzero_mask = probabilities > 0
+    entropy = float(-(probabilities[nonzero_mask] * np.log2(probabilities[nonzero_mask])).sum())
+    
+    return variance, entropy
+
+
+def compute_lbp_texture_zscores(
+    card_bgr: np.ndarray,
+    photo_bbox_xyxy: Tuple[int, int, int, int]
+) -> Dict[str, float]:
+    """
+    Compare texture complexity between portrait region and full card.
+    Uses LBP histogram variance and entropy as texture descriptors.
+    
+    Returns z-scores where higher values indicate more suspicious differences.
+    Robust to small crops and type conversion issues.
+    """
+    result = {
+        "lbp_var_z": 0.0,
+        "lbp_entropy_z": 0.0
+    }
+    
+    if card_bgr is None or photo_bbox_xyxy is None:
+        return result
+    
+    grayscale = convert_to_grayscale(card_bgr)
+    photo_roi = safe_crop_region(grayscale, photo_bbox_xyxy)
+    
+    if photo_roi is None or photo_roi.size == 0:
+        return result
+    
+    # Require minimum image size for 8-neighbor LBP
+    if (min(grayscale.shape[:2]) < MIN_IMAGE_SIZE_FOR_LBP or 
+        min(photo_roi.shape[:2]) < MIN_IMAGE_SIZE_FOR_LBP):
+        return result
+    
+    # Compute LBP for full card and portrait region
+    card_lbp = compute_lbp_image(grayscale)
+    roi_lbp = compute_lbp_image(photo_roi)
+    
+    # Extract statistics
+    card_variance, card_entropy = compute_lbp_statistics(card_lbp)
+    roi_variance, roi_entropy = compute_lbp_statistics(roi_lbp)
+    
+    # Compute z-scores with safe denominators
+    variance_denominator = np.sqrt(max(card_variance, EPSILON_SMALL))
+    entropy_denominator = np.sqrt(max(abs(card_entropy), EPSILON_SMALL))
+    
+    variance_zscore = float((roi_variance - card_variance) / variance_denominator)
+    entropy_zscore = float((roi_entropy - card_entropy) / entropy_denominator)
+    
+    result["lbp_var_z"] = variance_zscore
+    result["lbp_entropy_z"] = entropy_zscore
+    
+    return result
+
+
+# ============================================================================
+# 3. Copy-Move Detection
+# ============================================================================
+
+def detect_copy_move_manipulation(
+    card_grayscale: np.ndarray,
+    min_matches: int = MIN_COPY_MOVE_MATCHES,
+    epsilon_pixels: int = COPY_MOVE_EPSILON_PIXELS
+) -> float:
+    """
+    Detect copy-move forgery by finding duplicated content within the image.
+    
+    Method:
+    1. Extract ORB features and match them to themselves (cross-check)
+    2. Filter out near-neighbor matches (within epsilon_pixels)
+    3. Cluster displacement vectors by angle and magnitude
+    4. Return ratio of dominant cluster to total matches
+    
+    Returns:
+        Score in [0, 1] where > ~0.6 suggests duplicated content
+    """
+    if card_grayscale is None or card_grayscale.size == 0:
         return 0.0
-
-    gray = card_gray if card_gray.ndim == 2 else to_gray(card_gray)
-
-    orb = cv2.ORB_create(nfeatures=4000, scaleFactor=1.2, nlevels=8)
-    kpts, desc = orb.detectAndCompute(gray, None)
-    if desc is None or len(kpts) < 2:
+    
+    grayscale = (card_grayscale if card_grayscale.ndim == 2 
+                 else convert_to_grayscale(card_grayscale))
+    
+    # Detect ORB features
+    orb = cv2.ORB_create(
+        nfeatures=ORB_MAX_FEATURES,
+        scaleFactor=ORB_SCALE_FACTOR,
+        nlevels=ORB_PYRAMID_LEVELS
+    )
+    keypoints, descriptors = orb.detectAndCompute(grayscale, None)
+    
+    if descriptors is None or len(keypoints) < 2:
         return 0.0
-
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = bf.match(desc, desc)
-
-    disp = []
-    for m in matches:
-        if m.queryIdx == m.trainIdx:
+    
+    # Match features to themselves with cross-checking
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    matches = matcher.match(descriptors, descriptors)
+    
+    # Compute displacement vectors, filtering self-matches and near-neighbors
+    displacement_vectors = []
+    for match in matches:
+        # Skip self-matches
+        if match.queryIdx == match.trainIdx:
             continue
-        p = np.array(kpts[m.queryIdx].pt)
-        q = np.array(kpts[m.trainIdx].pt)
-        d = q - p
-        if np.linalg.norm(d) < eps_px:  # ignore tiny locality
+        
+        point_query = np.array(keypoints[match.queryIdx].pt)
+        point_train = np.array(keypoints[match.trainIdx].pt)
+        displacement = point_train - point_query
+        
+        # Ignore tiny displacements (local noise)
+        if np.linalg.norm(displacement) < epsilon_pixels:
             continue
-        disp.append(d)
-
-    if len(disp) < min_matches:
+        
+        displacement_vectors.append(displacement)
+    
+    if len(displacement_vectors) < min_matches:
         return 0.0
+    
+    # Analyze displacement vector distribution
+    displacements = np.array(displacement_vectors, dtype=np.float32)
+    
+    angles = (np.degrees(np.arctan2(displacements[:, 1], displacements[:, 0])) + 360.0) % 360.0
+    magnitudes = np.linalg.norm(displacements, axis=1)
+    
+    # Create 2D histogram of angle vs magnitude
+    magnitude_max = max(MAGNITUDE_MAX_DEFAULT, float(magnitudes.max()))
+    histogram_2d, _, _ = np.histogram2d(
+        angles,
+        magnitudes,
+        bins=(ANGLE_HISTOGRAM_BINS, MAGNITUDE_HISTOGRAM_BINS),
+        range=[[0, 360], [0, magnitude_max]]
+    )
+    
+    # Dominant cluster ratio indicates copy-move likelihood
+    peak_count = histogram_2d.max()
+    total_count = histogram_2d.sum() + EPSILON_SMALL
+    cluster_ratio = float(peak_count / total_count)
+    
+    return cluster_ratio
 
-    disp = np.array(disp, dtype=np.float32)
-    ang = (np.degrees(np.arctan2(disp[:, 1], disp[:, 0])) + 360.0) % 360.0
-    mag = np.linalg.norm(disp, axis=1)
 
-    # 2D histogram over (angle, magnitude)
-    H, _, _ = np.histogram2d(ang, mag, bins=(36, 30),
-                             range=[[0, 360], [0, max(50, float(mag.max()))]])
-    peak = H.max()
-    total = H.sum() + 1e-9
-    ratio = float(peak / total)  # ~[0..1]
-    return ratio
+# ============================================================================
+# 4. CFA/PRNU Inconsistency Detection
+# ============================================================================
 
-
-# ----------------------------------------------------
-# 4) CFA / PRNU inconsistency (cheap demosaic residuals)
-# ----------------------------------------------------
-
-def cfa_inconsistency(card_bgr: np.ndarray, photo_xyxy) -> Dict[str, float]:
+def compute_cfa_inconsistency_scores(
+    card_bgr: np.ndarray,
+    photo_bbox_xyxy: Tuple[int, int, int, int]
+) -> Dict[str, float]:
     """
-    Compute demosaicing residual map and compare inside vs outside portrait.
-    Returns z-score of residual mean and std; higher => more suspicious.
+    Detect Color Filter Array (CFA) inconsistencies by comparing demosaicing
+    residuals inside vs outside the portrait region.
+    
+    Uses simple bilinear interpolation to predict green channel values,
+    then computes z-scores of residual statistics.
+    
+    Returns:
+        Dictionary with 'cfa_mean_z' and 'cfa_std_z' scores
+        Higher values indicate more suspicious differences
     """
-    if card_bgr is None or photo_xyxy is None:
+    if card_bgr is None or photo_bbox_xyxy is None:
         return {"cfa_mean_z": 0.0, "cfa_std_z": 0.0}
-
-    g = to_gray(card_bgr).astype(np.float32)
-
-    # Predict green by a simple cross bilinear; residual = |G - G_pred|
-    kernel = np.array([[0.0, 0.25, 0.0],
-                       [0.25, 0.0, 0.25],
-                       [0.0, 0.25, 0.0]], np.float32)
-    g_pred = cv2.filter2D(g, -1, kernel)
-    res = np.abs(g - g_pred)
-
-    # Split inside vs outside portrait
-    mask = np.zeros_like(res, np.uint8)
-    x1, y1, x2, y2 = map(int, photo_xyxy)
+    
+    grayscale = convert_to_grayscale(card_bgr).astype(np.float32)
+    
+    # Predict green channel using cross-shaped bilinear kernel
+    demosaic_kernel = np.array([
+        [0.0, 0.25, 0.0],
+        [0.25, 0.0, 0.25],
+        [0.0, 0.25, 0.0]
+    ], dtype=np.float32)
+    
+    predicted_green = cv2.filter2D(grayscale, -1, demosaic_kernel)
+    residual_map = np.abs(grayscale - predicted_green)
+    
+    # Create mask separating inside/outside portrait
+    mask = np.zeros_like(residual_map, dtype=np.uint8)
+    x1, y1, x2, y2 = map(int, photo_bbox_xyxy)
     mask[y1:y2, x1:x2] = 1
-    inside = res[mask == 1]
-    outside = res[mask == 0]
+    
+    # Split residuals by region
+    residuals_inside = residual_map[mask == 1]
+    residuals_outside = residual_map[mask == 0]
+    
+    # Compute statistics with epsilon for numerical stability
+    mean_inside = float(residuals_inside.mean() + EPSILON_SMALL)
+    std_inside = float(residuals_inside.std() + EPSILON_SMALL)
+    mean_outside = float(residuals_outside.mean() + EPSILON_SMALL)
+    std_outside = float(residuals_outside.std() + EPSILON_SMALL)
+    
+    # Z-scores comparing inside vs outside
+    mean_zscore = (mean_inside - mean_outside) / (std_outside + EPSILON_SMALL)
+    std_zscore = (std_inside - std_outside) / (std_outside + EPSILON_SMALL)
+    
+    return {
+        "cfa_mean_z": float(mean_zscore),
+        "cfa_std_z": float(std_zscore)
+    }
 
-    mi, si = float(inside.mean() + 1e-9), float(inside.std() + 1e-9)
-    mo, so = float(outside.mean() + 1e-9), float(outside.std() + 1e-9)
 
-    mean_z = (mi - mo) / (so + 1e-9)
-    std_z  = (si - so) / (so + 1e-9)
-    return {"cfa_mean_z": float(mean_z), "cfa_std_z": float(std_z)}
+# ============================================================================
+# 5. Font Forensics (Glyph Metrics Analysis)
+# ============================================================================
 
-
-# ----------------------------------------------------
-# 5) Font forensics (one-class SVM on glyph metrics)
-#    - Runtime scorer (training is external/offline).
-# ----------------------------------------------------
-
-def _prep_binary(img_bgr: np.ndarray) -> np.ndarray:
-    g = to_gray(img_bgr)
-    g = cv2.resize(g, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-    _, th = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    if th.mean() < 127:
-        th = 255 - th
-    th = cv2.morphologyEx(th, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8), iterations=1)
-    return th
-
-def _glyph_features(th_bin: np.ndarray) -> np.ndarray:
+def prepare_binary_text_image(bgr_image: np.ndarray) -> np.ndarray:
     """
-    Extract glyph metrics from a binarized region:
-      - mean/std glyph width/height
-      - mean/std glyph area (log1p)
-      - stroke density proxy (skeleton)
-      - mean inter-glyph gap (log1p)
+    Prepare text region for glyph analysis.
+    Upscales, binarizes with Otsu, inverts if needed, and applies morphology.
     """
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(th_bin, connectivity=8)
-    areas = stats[1:, cv2.CC_STAT_AREA]  # exclude background
+    grayscale = convert_to_grayscale(bgr_image)
+    
+    # Upscale for better feature extraction
+    upscaled = cv2.resize(
+        grayscale,
+        None,
+        fx=BINARIZATION_UPSCALE_FACTOR,
+        fy=BINARIZATION_UPSCALE_FACTOR,
+        interpolation=cv2.INTER_CUBIC
+    )
+    
+    # Otsu binarization
+    _, binary = cv2.threshold(
+        upscaled,
+        0,
+        255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+    
+    # Ensure white text on black background
+    if binary.mean() < 127:
+        binary = 255 - binary
+    
+    # Clean up noise
+    morphology_kernel = np.ones(MORPHOLOGY_KERNEL_SIZE, dtype=np.uint8)
+    binary = cv2.morphologyEx(
+        binary,
+        cv2.MORPH_OPEN,
+        morphology_kernel,
+        iterations=1
+    )
+    
+    return binary
+
+
+def compute_stroke_density(binary_image: np.ndarray) -> float:
+    """
+    Compute stroke density using morphological skeleton.
+    Returns ratio of skeleton pixels to total pixels.
+    """
+    skeleton = binary_image.copy()
+    total_pixels = float(np.size(skeleton))
+    skeleton_pixel_count = 0
+    
+    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, SKELETON_KERNEL_SIZE)
+    
+    while True:
+        opened = cv2.morphologyEx(skeleton, cv2.MORPH_OPEN, kernel)
+        temp = cv2.subtract(skeleton, opened)
+        eroded = cv2.erode(skeleton, kernel)
+        skeleton = eroded.copy()
+        skeleton_pixel_count += int(np.count_nonzero(temp))
+        
+        if cv2.countNonZero(skeleton) == 0:
+            break
+    
+    return skeleton_pixel_count / (total_pixels + EPSILON_SMALL)
+
+
+def compute_interglyph_gaps(binary_image: np.ndarray) -> np.ndarray:
+    """
+    Compute inter-glyph spacing by projecting to X-axis and finding gaps.
+    Returns array of gap widths in pixels.
+    """
+    # Project foreground pixels to X-axis
+    projection = (255 - binary_image).sum(axis=0)
+    has_content = (projection > 0).astype(np.uint8)
+    
+    gaps = []
+    in_content_run = False
+    last_content_end = 0
+    
+    for i, has_pixel in enumerate(has_content):
+        if has_pixel and not in_content_run:
+            # Start of content run
+            in_content_run = True
+            gap_width = i - last_content_end
+            if gap_width > 0:
+                gaps.append(gap_width)
+        
+        if not has_pixel and in_content_run:
+            # End of content run
+            in_content_run = False
+            last_content_end = i
+    
+    return np.array(gaps, dtype=np.float32) if gaps else np.array([0.0], dtype=np.float32)
+
+
+def extract_glyph_feature_vector(binary_image: np.ndarray) -> np.ndarray:
+    """
+    Extract comprehensive glyph metrics from binarized text region.
+    
+    Features (8 dimensions):
+    - Mean and std of glyph widths
+    - Mean and std of glyph heights
+    - Mean and std of glyph areas (log-scaled)
+    - Stroke density (skeleton-based)
+    - Mean inter-glyph gap (log-scaled)
+    
+    Returns:
+        Feature vector of shape (1, 8)
+    """
+    # Analyze connected components (glyphs)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        binary_image,
+        connectivity=8
+    )
+    
+    # Extract component statistics (excluding background label 0)
+    areas = stats[1:, cv2.CC_STAT_AREA]
     widths = stats[1:, cv2.CC_STAT_WIDTH]
     heights = stats[1:, cv2.CC_STAT_HEIGHT]
+    
     if areas.size == 0:
         return np.zeros((1, 8), dtype=np.float32)
-
-    # Skeleton-based stroke density
-    skel = th_bin.copy()
-    size = float(np.size(skel))
-    element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-    skel_count = 0
-    while True:
-        opened = cv2.morphologyEx(skel, cv2.MORPH_OPEN, element)
-        temp = cv2.subtract(skel, opened)
-        eroded = cv2.erode(skel, element)
-        skel = eroded.copy()
-        skel_count += int(np.count_nonzero(temp))
-        if cv2.countNonZero(skel) == 0:
-            break
-    stroke_density = skel_count / (size + 1e-9)
-
-    # Inter-glyph spacing (project to X)
-    proj = (255 - th_bin).sum(axis=0)
-    edges = (proj > 0).astype(np.uint8)
-    gaps = []
-    in_run = False; last_end = 0
-    for i, v in enumerate(edges):
-        if v and not in_run:
-            in_run = True
-            if i - last_end > 0:
-                gaps.append(i - last_end)
-        if not v and in_run:
-            in_run = False
-            last_end = i
-    gaps = np.array(gaps, dtype=np.float32) if gaps else np.array([0.0], dtype=np.float32)
-
-    feat = np.array([
-        float(np.mean(widths)), float(np.std(widths) + 1e-9),
-        float(np.mean(heights)), float(np.std(heights) + 1e-9),
-        float(np.mean(areas)), float(np.std(areas) + 1e-9),
+    
+    # Compute auxiliary features
+    stroke_density = compute_stroke_density(binary_image)
+    interglyph_gaps = compute_interglyph_gaps(binary_image)
+    
+    # Assemble feature vector
+    features = np.array([
+        float(np.mean(widths)),
+        float(np.std(widths) + EPSILON_SMALL),
+        float(np.mean(heights)),
+        float(np.std(heights) + EPSILON_SMALL),
+        float(np.mean(areas)),
+        float(np.std(areas) + EPSILON_SMALL),
         stroke_density,
-        float(np.mean(gaps)),
+        float(np.mean(interglyph_gaps)),
     ], dtype=np.float32).reshape(1, -1)
+    
+    # Log-transform heavy-tailed distributions
+    features[:, 4:6] = np.log1p(features[:, 4:6])  # Area statistics
+    features[:, 7:8] = np.log1p(features[:, 7:8])  # Gap statistics
+    
+    return features
 
-    # log-scale heavy-tailed stats
-    feat[:, 4:6] = np.log1p(feat[:, 4:6])
-    feat[:, 7:8] = np.log1p(feat[:, 7:8])
-    return feat
 
-def font_od_score(card_bgr: np.ndarray,
-                  nid_xyxy,
-                  serial_xyxy,
-                  ocsvm_path: Optional[str]) -> Dict[str, float]:
+def compute_font_anomaly_scores(
+    card_bgr: np.ndarray,
+    nid_bbox_xyxy: Optional[Tuple[int, int, int, int]],
+    serial_bbox_xyxy: Optional[Tuple[int, int, int, int]],
+    ocsvm_model_path: Optional[str]
+) -> Dict[str, float]:
     """
-    Load a One-Class SVM (trained offline on genuine glyph metrics).
-    Return negative decision_function => out-of-distribution (suspicious).
+    Detect font anomalies using One-Class SVM trained on genuine glyph metrics.
+    
+    Returns decision function values where negative scores indicate
+    out-of-distribution (suspicious) fonts.
+    
+    Args:
+        card_bgr: Full card image in BGR
+        nid_bbox_xyxy: Bounding box for National ID number field
+        serial_bbox_xyxy: Bounding box for serial number field
+        ocsvm_model_path: Path to trained One-Class SVM model
+    
+    Returns:
+        Dictionary with 'font_nid_df', 'font_serial_df' scores and 'ok' flag
     """
-    scores = {"font_nid_df": 0.0, "font_serial_df": 0.0, "ok": False}
-    if not SKLEARN_OK or not ocsvm_path or not os.path.exists(ocsvm_path):
+    scores = {
+        "font_nid_df": 0.0,
+        "font_serial_df": 0.0,
+        "ok": False
+    }
+    
+    # Check prerequisites
+    if not SKLEARN_AVAILABLE:
         return scores
-
+    
+    if not ocsvm_model_path or not os.path.exists(ocsvm_model_path):
+        return scores
+    
+    # Load trained model
     try:
-        svm: OneClassSVM = joblib.load(ocsvm_path)  # type: ignore
+        svm_model: OneClassSVM = joblib.load(ocsvm_model_path)  # type: ignore
     except Exception:
         return scores
-
+    
     scores["ok"] = True
-
-    # NID block
-    if nid_xyxy is not None:
-        crop = safe_crop(card_bgr, nid_xyxy, pad=2)
-        if crop is not None and crop.size > 0:
-            th = _prep_binary(crop)
-            feat = _glyph_features(th)
-            scores["font_nid_df"] = float(svm.decision_function(feat)[0])
-
-    # Serial block
-    if serial_xyxy is not None:
-        crop = safe_crop(card_bgr, serial_xyxy, pad=2)
-        if crop is not None and crop.size > 0:
-            th = _prep_binary(crop)
-            feat = _glyph_features(th)
-            scores["font_serial_df"] = float(svm.decision_function(feat)[0])
-
+    
+    # Analyze NID field
+    if nid_bbox_xyxy is not None:
+        nid_crop = safe_crop_region(card_bgr, nid_bbox_xyxy, padding=2)
+        if nid_crop is not None and nid_crop.size > 0:
+            binary = prepare_binary_text_image(nid_crop)
+            features = extract_glyph_feature_vector(binary)
+            scores["font_nid_df"] = float(svm_model.decision_function(features)[0])
+    
+    # Analyze serial field
+    if serial_bbox_xyxy is not None:
+        serial_crop = safe_crop_region(card_bgr, serial_bbox_xyxy, padding=2)
+        if serial_crop is not None and serial_crop.size > 0:
+            binary = prepare_binary_text_image(serial_crop)
+            features = extract_glyph_feature_vector(binary)
+            scores["font_serial_df"] = float(svm_model.decision_function(features)[0])
+    
     return scores
+
+
+# ============================================================================
+# Public API (maintaining original function names)
+# ============================================================================
+
+# Alias original function names for backward compatibility
+safe_crop = safe_crop_region
+to_gray = convert_to_grayscale
+seam_margin_mask = create_seam_margin_mask
+noiseprint_or_mantra_score = compute_splice_detection_scores
+lbp_texture_zscores = compute_lbp_texture_zscores
+copy_move_score = detect_copy_move_manipulation
+cfa_inconsistency = compute_cfa_inconsistency_scores
+font_od_score = compute_font_anomaly_scores
